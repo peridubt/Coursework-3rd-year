@@ -1,0 +1,5 @@
+{
+  "data_amount" : 100000,
+  "node_interval_left": 20,
+  "node_interval_right": 60
+}
