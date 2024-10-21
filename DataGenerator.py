@@ -64,7 +64,7 @@ class DataGenerator:
         return false_route
 
     # Метод, генерирующий ложные маршруты
-    def get_false_routes(self) -> None:  # вместо None подставить список
+    def get_false_routes(self) -> None:
         self.__get_main_route()
         for _ in range(self.__data_amount):
             self.false_routes.append(self.__get_one_false_route())
