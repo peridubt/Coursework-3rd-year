@@ -1,5 +1,7 @@
 {
-  "data_amount" : 100000,
-  "node_interval_left": 20,
-  "node_interval_right": 60
+  "data_amount" : 100,
+  "min_segment": 20,
+  "max_segment": 60,
+  "min_offset": 10,
+  "max_offset": 30
 }
