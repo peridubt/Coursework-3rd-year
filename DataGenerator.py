@@ -5,9 +5,6 @@ import osmnx as ox
 import networkx as nx
 from geopy.distance import geodesic as gd
 import json
-from selenium import webdriver
-from PIL import Image
-import time
 import TMS_request
 
 
@@ -21,16 +18,9 @@ class DataGenerator:
         # через координаты противоположных углов
 
         if "place_name" in kwargs.keys():
-            north, south, east, west = ox.geocode_to_gdf(
+            self.__place_bbox = ox.geocode_to_gdf(
                 kwargs["place_name"]
             ).geometry.total_bounds
-
-            self.__place_bbox = [
-                north,
-                south,
-                east,
-                west,
-            ]
 
         elif "place_bbox" in kwargs.keys():
             self.__place_bbox = kwargs["place_bbox"]
@@ -38,7 +28,7 @@ class DataGenerator:
             raise Exception(
                 "Укажите название места согласно базе данных OSM либо координаты местности."
             )
-            
+
         self.__graph = ox.graph_from_place(*self.__place_bbox)  # граф местности
 
     def __load_config(self, file_path: str) -> None:
@@ -124,40 +114,6 @@ class DataGenerator:
         for _ in range(self.__data_amount):
             self.false_routes.append(self.__get_one_false_route())
 
-    # # Сохранение изображение и последующее его нарезание на части
-    # def __save_image(
-    #     self, path: str, name: str, extension: str, save_folder: str
-    # ) -> None:
-    #     options = webdriver.ChromeOptions()
-    #     options.add_argument("--headless")  # Запуск без GUI
-
-    #     driver = webdriver.Chrome(options=options)
-    #     driver.set_window_size(1200, 1200)
-    #     path.replace("\\", "/")
-    #     driver.get("file:///" + path)
-    #     time.sleep(2)
-    #     os.makedirs(save_folder, exist_ok=True)
-    #     driver.save_screenshot(os.path.join(save_folder, name, f"{name}.{extension}"))
-    #     driver.quit()
-    #     self.__crop_image(name, extension, save_folder)
-
-    # # Нарезание изображения на более мелкие части
-    # @staticmethod
-    # def __crop_image(
-    #     name: str, extension: str, save_folder: str, tile_size: int = 200
-    # ) -> None:
-    #     os.makedirs(save_folder, exist_ok=True)
-    #     img = Image.open(os.path.join(save_folder, name, f"{name}.{extension}"))
-    #     img_width, img_height = img.size
-
-    #     for i in range(0, img_width, tile_size):
-    #         for j in range(0, img_height, tile_size):
-    #             box = (i, j, i + tile_size, j + tile_size)
-    #             cropped = img.crop(box)
-    #             cropped.save(
-    #                 os.path.join(save_folder, name, f"{name}_{i}_{j}.{extension}")
-    #             )
-
     def save_main_route(self) -> None:
         if len(self.main_route) == 0:
             self.__generate_main_route()
@@ -171,10 +127,10 @@ class DataGenerator:
             raise Exception(
                 "Для получения определённого ложного маршрута требуется генерация."
             )
-        route_map = ox.plot_route_folium(
-            self.false_routes[index][0], self.false_routes[index][1]
-        )
-        route_map.save(f"queries/false_route{index}.html")
+        # route_map = ox.plot_route_folium(
+        #     self.false_routes[index][0], self.false_routes[index][1]
+        # )
+        # route_map.save(f"queries/false_route{index}.html")
 
 
 if __name__ == "__main__":
