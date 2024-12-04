@@ -109,20 +109,19 @@ class DataGenerator:
             new_nodes.append(path[i + 1])
         return G, new_nodes
 
-    def save_main_route(self, index: int, save_folder: str) -> None:
+    def save_main_route(self, save_folder: str) -> None:
         main_route = self.__generate_main_route()
         self.main_routes.append(main_route)
+        index = len(self.main_routes)
         request = TMSRequest()
         request.get(
             self.__place_bbox, self.__graph, main_route,
             save_folder, f"main{index}", "png"
         )
 
-    def save_false_route(self, index: int, save_folder: str) -> None:
-        if index < 1 or index > len(self.main_routes):
-            raise Exception("Нет подходящего исходного маршрута для генерации.")
-
+    def save_false_route(self, save_folder: str) -> None:
         request = TMSRequest()
+        index = len(self.main_routes)
         false_graph, false_route = self.__get_one_false_route(self.main_routes[index - 1])
         self.false_routes.append((false_graph, false_route))
         request.get(
@@ -138,11 +137,11 @@ class DataGenerator:
         for i in range(1, self.__data_amount + 1):
             route_folder = os.path.join(save_folder, f"route{i}")
             os.makedirs(route_folder, exist_ok=True)
-            self.save_main_route(i, route_folder)
-            self.save_false_route(i, route_folder)
+            self.save_main_route(route_folder)
+            self.save_false_route(route_folder)
 
 
 if __name__ == "__main__":
     os.makedirs("images", exist_ok=True)
-    data_generator = DataGenerator(place_bbox=[39.121447,  51.646002, 39.135578, 51.653782])
+    data_generator = DataGenerator(place_bbox=[39.121447, 51.646002, 39.135578, 51.653782])
     data_generator.save_data("images")
