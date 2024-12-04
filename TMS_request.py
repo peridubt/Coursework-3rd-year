@@ -124,13 +124,11 @@ class TMSRequest:
 
     def get(self, geo_coords: tuple, graph: nx.Graph, node_ids: list,
             save_folder: str, route_name: str, extension: str):
-        lat1, lon1, lat2, lon2, zoom = (
-            geo_coords[1],
-            geo_coords[3],
-            geo_coords[0],
-            geo_coords[2],
-            self.__zoom_size,
-        )
+        lat1, lat2 = (min(geo_coords[0], geo_coords[1]),
+                      max(geo_coords[0], geo_coords[1]))
+        lon1, lon2 = (min(geo_coords[2], geo_coords[3]),
+                      max(geo_coords[2], geo_coords[3]))
+        zoom = self.__zoom_size
         self.set_tiles_coords(lat1, lon1, lat2, lon2, zoom)
         self.fill_img_with_tiles(zoom)
 
