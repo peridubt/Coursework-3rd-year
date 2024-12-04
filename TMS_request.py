@@ -3,12 +3,11 @@ from time import sleep
 import requests
 from PIL import Image, ImageDraw
 from io import BytesIO
-import osmnx as ox
 import networkx as nx
 import os
 
 
-class TSMRequest:
+class TMSRequest:
     def __init__(self):
         self.__tile_size = 256
         self.__zoom_size = 16
@@ -21,17 +20,17 @@ class TSMRequest:
     @staticmethod
     def lat_lon_to_tile(lat, lon, zoom) -> (int, int):
         """Convert latitude and longitude to tile numbers."""
-        n = 2**zoom
+        n = 2 ** zoom
         x_tile = int((lon + 180) / 360 * n)
         y_tile = int(
-            (1 - (math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat)))/ math.pi)) / 2* n
+            (1 - (math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi)) / 2 * n
         )
         return x_tile, y_tile
 
     @staticmethod
     def tile_to_lat_lon(x, y, zoom) -> (float, float):
         """Convert tile numbers to latitude and longitude."""
-        n = 2**zoom
+        n = 2 ** zoom
         lon = x / n * 360.0 - 180.0
         lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * y / n)))
         lat = math.degrees(lat_rad)
@@ -54,10 +53,10 @@ class TSMRequest:
 
     @staticmethod
     def geo_to_pixel(lat, lon, x_tile, y_tile, zoom) -> (int, int):
-        n = 2.0**zoom
+        n = 2.0 ** zoom
         x = (lon + 180.0) / 360.0 * n
         y = (
-        (1.0 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi)/ 2.0* n
+                (1.0 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2.0 * n
         )
         pixel_x = (x - x_tile) * 256
         pixel_y = (y - y_tile) * 256
@@ -92,7 +91,7 @@ class TSMRequest:
                     )
 
     def draw_route_on_map(
-        self, route_coords: list, zoom: int, save_folder: str, name: str, extension: str
+            self, route_coords: list, zoom: int, save_folder: str, name: str, extension: str
     ):
         draw = ImageDraw.Draw(self.__map_img)
         for i in range(len(route_coords) - 1):
@@ -123,28 +122,22 @@ class TSMRequest:
                     os.path.join(save_folder, name, f"{name}_{i}_{j}.{extension}")
                 )
 
-    def main(self, place_bbox: tuple, G: nx.Graph, route: list):
+    def get(self, geo_coords: tuple, graph: nx.Graph, node_ids: list,
+            save_folder: str, route_name: str, extension: str):
         lat1, lon1, lat2, lon2, zoom = (
-            place_bbox[1],
-            place_bbox[0],
-            place_bbox[3],
-            place_bbox[2],
+            geo_coords[1],
+            geo_coords[3],
+            geo_coords[0],
+            geo_coords[2],
             self.__zoom_size,
         )
         self.set_tiles_coords(lat1, lon1, lat2, lon2, zoom)
         self.fill_img_with_tiles(zoom)
 
-        route_coords = [(G.nodes[n]["y"], G.nodes[n]["x"]) for n in route]
-        self.draw_route_on_map(route_coords, zoom, "images", "main", "png")
-        self.split_img_into_tiles("images", "main", "png")
+        route_coords = [(graph.nodes[n]["y"], graph.nodes[n]["x"]) for n in node_ids]
+        self.draw_route_on_map(route_coords, zoom, save_folder, route_name, extension)
+        self.split_img_into_tiles(save_folder, route_name, extension)
 
 
 if __name__ == "__main__":
-    G = ox.graph_from_place("Тепличный, Voronezh, Russia")
-    place_bbox = ox.geocode_to_gdf("Тепличный, Voronezh, Russia").geometry.total_bounds
-    keys = list(G.nodes.keys())
-    orig = keys[0]  # Начальная точка (широта, долгота)
-    dest = keys[-1]  # Конечная точка (широта, долгота)
-    route = nx.astar_path(G, orig, dest, weight="length")
-    tsm_request = TSMRequest()
-    tsm_request.main(place_bbox, G, route)
+    pass

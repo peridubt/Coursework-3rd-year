@@ -1,11 +1,9 @@
-import os
-import pathlib
 import random
 import osmnx as ox
 import networkx as nx
 from geopy.distance import geodesic as gd
 import json
-import TMS_request
+from TMS_request import TMSRequest
 
 
 class DataGenerator:
@@ -18,9 +16,9 @@ class DataGenerator:
         # через координаты противоположных углов
 
         if "place_name" in kwargs.keys():
-            self.__place_bbox = ox.geocode_to_gdf(
+            self.__place_bbox = sorted(list(ox.geocode_to_gdf(
                 kwargs["place_name"]
-            ).geometry.total_bounds
+            ).geometry.total_bounds), reverse=True)
 
         elif "place_bbox" in kwargs.keys():
             self.__place_bbox = kwargs["place_bbox"]
@@ -29,7 +27,7 @@ class DataGenerator:
                 "Укажите название места согласно базе данных OSM либо координаты местности."
             )
 
-        self.__graph = ox.graph_from_place(*self.__place_bbox)  # граф местности
+        self.__graph = ox.graph_from_bbox(*self.__place_bbox, network_type="drive")  # граф местности
 
     def __load_config(self, file_path: str) -> None:
         with open(file_path, "r") as file:
@@ -50,7 +48,7 @@ class DataGenerator:
         # Поиск кратчайшего пути с помощью алгоритма А*
         self.main_route = nx.astar_path(self.__graph, start, end, weight="length")
 
-    def __get_one_false_route(self) -> ("nx.classes.multidigraph.MultiDiGraph", list):
+    def __get_one_false_route(self) -> ("nx.Graph", list):
         path = self.main_route
         G = self.__graph
         new_nodes = [path[0]]
@@ -114,25 +112,28 @@ class DataGenerator:
         for _ in range(self.__data_amount):
             self.false_routes.append(self.__get_one_false_route())
 
-    def save_main_route(self) -> None:
+    def save_main_route(self, save_folder: str) -> None:
         if len(self.main_route) == 0:
             self.__generate_main_route()
-        route_map = ox.plot_route_folium(self.__graph, self.main_route)
-        route_map.save("queries/main_route.html")
-        path = pathlib.Path().resolve().__str__() + "\\queries\\main_route.html"
-        self.__save_image(path, "main_route", "png", "images")
+        request = TMSRequest()
+        request.get(self.__place_bbox, self.__graph, self.main_route,
+                    save_folder, "main", "png")
 
-    def save_false_route(self, index: int) -> None:
+    def save_false_route(self, index: int, save_folder: str) -> None:
         if len(self.false_routes) == 0:
             raise Exception(
                 "Для получения определённого ложного маршрута требуется генерация."
             )
-        # route_map = ox.plot_route_folium(
-        #     self.false_routes[index][0], self.false_routes[index][1]
-        # )
-        # route_map.save(f"queries/false_route{index}.html")
+        if index < 1 or index > len(self.false_routes):
+            raise Exception("Нет маршрута с заданным номером.")
+        request = TMSRequest()
+        false_graph, false_route = self.false_routes[index - 1]
+        request.get(self.__place_bbox, false_graph, false_route,
+                    save_folder, f"false_route{index}", "png")
 
 
 if __name__ == "__main__":
     data_generator = DataGenerator(place_name="Тепличный, Voronezh, Russia")
-    data_generator.save_main_route()
+    data_generator.save_main_route("images")
+    data_generator.generate_false_routes()
+    data_generator.save_false_route(2, "images")
