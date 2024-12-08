@@ -146,7 +146,8 @@ class DataGenerator:
             new_nodes.append(path[i + 1])
         return G, new_nodes
 
-    def __transform_bbox(self, bbox: list) -> dict:
+    @staticmethod
+    def __transform_bbox(bbox: list) -> dict:
         """
         Преобразование списка координат в словарь.
         Args:
