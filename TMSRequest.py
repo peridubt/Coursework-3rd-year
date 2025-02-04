@@ -112,7 +112,7 @@ class TMSRequest:
         )
         pixel_x = (x - x_tile) * 256
         pixel_y = (y - y_tile) * 256
-        return pixel_x, pixel_y
+        return int(pixel_x), int(pixel_y)
 
     def __set_tiles_coords(
         self, lat1: float, lon1: float, lat2: float, lon2: float, zoom: int
