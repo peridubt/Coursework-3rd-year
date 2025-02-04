@@ -2,7 +2,7 @@ import math
 from time import sleep
 from typing import Tuple
 import requests
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw # type: ignore
 from io import BytesIO
 import networkx as nx
 import os
