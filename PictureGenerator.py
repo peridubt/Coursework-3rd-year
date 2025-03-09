@@ -8,7 +8,7 @@ import json
 from TMSRequest import TMSRequest
 
 
-class DataGenerator:
+class PictureGenerator:
     def __init__(self, config_path: str = "config.json", **kwargs):
         """Конструктор класса, которому в именованных аргументах передаётся
         либо название местности, либо точные координаты местности.
@@ -232,7 +232,7 @@ class DataGenerator:
 
 if __name__ == "__main__":
     os.makedirs("images", exist_ok=True)
-    data_generator = DataGenerator(
+    data_generator = PictureGenerator(
         place_bbox=[39.121447, 51.646002, 39.135578, 51.653782]
     )
     data_generator.save_data("images")

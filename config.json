@@ -1,5 +1,5 @@
 {
-  "data_amount" : 100,
+  "data_amount" : 1000,
   "min_segment": 20,
   "max_segment": 60,
   "min_offset": 10,

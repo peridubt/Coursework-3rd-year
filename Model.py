@@ -1,123 +1,143 @@
-import torch
+import osmnx as ox
+import networkx as nx
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
-from PIL import Image
-import os
+import torch
+from torch.utils.data import Dataset, DataLoader
+import json
+from torch_geometric.data import Data
+from torch_geometric.nn import GCNConv
+import torch.nn.functional as F
+from torch_geometric.utils import from_networkx
+
+# TODO разобраться подробнее с библиотекой torch_geometric
+# TODO выровнять длины истинных и ложных последовательностей координат
+# TODO разобраться, как использовать графы при обучении модели
+# TODO сделать обучающую выборку в виде файла json [DONE]
+# TODO придумать, в каком виде будет храниться выборка [DONE]
+
+"""
+Модуль непосредственно самой модели нейронной сети,
+основанной (предварительно) на комбинации рекуррентных нейронных сетей (RNN)
+и графовых нейронных сетей (GNN).
+"""
 
 
-# 1. Подготовка данных
-class RouteDataset(Dataset):
-    def __init__(self, distorted_dir, clean_dir, transform=None):
-        self.distorted_dir = distorted_dir
-        self.clean_dir = clean_dir
-        self.transform = transform
-        self.distorted_images = sorted(os.listdir(distorted_dir))
-        self.clean_images = sorted(os.listdir(clean_dir))
+G = ox.graph_from_bbox((39.121447, 51.646002, 39.135578, 51.653782))
 
-    def __len__(self):
-        return len(self.distorted_images)
+# Извлекаем узлы и их признаки
+node_features = torch.stack([data for _, data in G.nodes(data=True)])
+node_indices = {node: idx for idx, node in enumerate(G.nodes())}
 
-    def __getitem__(self, idx):
-        distorted_path = os.path.join(self.distorted_dir, self.distorted_images[idx])
-        clean_path = os.path.join(self.clean_dir, self.clean_images[idx])
-        distorted_image = Image.open(distorted_path).convert("RGB")
-        clean_image = Image.open(clean_path).convert("RGB")
+# Извлекаем рёбра и их признаки
+edge_indices = []
+edge_features = []
+for u, v, key, data in G.edges(keys=True, data=True):
+    edge_indices.append([node_indices[u], node_indices[v]])
+    edge_features.append(data['feature'])
 
-        if self.transform:
-            distorted_image = self.transform(distorted_image)
-            clean_image = self.transform(clean_image)
+edge_index = torch.tensor(edge_indices, dtype=torch.long).t().contiguous()
+edge_attr = torch.stack(edge_features)
 
-        return distorted_image, clean_image
+# Создаем объект Data
+data = Data(x=node_features, edge_index=edge_index, edge_attr=edge_attr)
+
+print(data)
 
 
-# Преобразования для изображений
-transform = transforms.Compose([
-    transforms.Resize((256, 256)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # Нормализация к [-1, 1]
-])
+class CoordinateCorrectionModel(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, num_layers=2):
+        super(CoordinateCorrectionModel, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
 
-# Создание DataLoader
-dataset = RouteDataset(distorted_dir="path/to/distorted", clean_dir="path/to/clean", transform=transform)
-dataloader = DataLoader(dataset, batch_size=8, shuffle=True)
+        # Используем LSTM для обработки последовательности
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
 
-
-# 2. Архитектура модели
-class UNet(nn.Module):
-    def __init__(self):
-        super(UNet, self).__init__()
-
-        # Энкодер
-        self.encoder = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-        )
-
-        # Декодер
-        self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(64, 3, kernel_size=4, stride=2, padding=1),
-            nn.Tanh(),  # Выход в диапазоне [-1, 1]
-        )
+        # Полносвязный слой для преобразования выхода LSTM в координаты
+        self.fc = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
-        x = self.encoder(x)
-        x = self.decoder(x)
+        # Инициализация скрытого состояния и состояния ячейки
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+
+        # Проход через LSTM
+        out, _ = self.lstm(x, (h0, c0))
+
+        # Применяем полносвязный слой к каждому элементу последовательности
+        out = self.fc(out)
+
+        return out
+
+
+class RouteDataset(Dataset):
+    def __init__(self, noisy_routes, true_routes):
+        self.noisy_routes = noisy_routes  # Список последовательностей с помехами
+        self.true_routes = true_routes  # Список истинных последовательностей
+
+    def __len__(self):
+        return len(self.noisy_routes)
+
+    def __getitem__(self, idx):
+        noisy = torch.tensor(self.noisy_routes[idx], dtype=torch.float32)
+        true = torch.tensor(self.true_routes[idx], dtype=torch.float32)
+        return noisy, true
+
+
+class GNN(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(GNN, self).__init__()
+        self.conv1 = GCNConv(input_dim, hidden_dim)
+        self.conv2 = GCNConv(hidden_dim, output_dim)
+
+    def forward(self, x, edge_index):
+        x = self.conv1(x, edge_index)
+        x = torch.relu(x)
+        x = self.conv2(x, edge_index)
         return x
 
 
-# Инициализация модели
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = UNet().to(device)
+# Объединение LSTM и GNN
+class CombinedModel(nn.Module):
+    def __init__(self, lstm_input_size, lstm_hidden_size, lstm_output_size, gnn_input_dim, gnn_hidden_dim,
+                 gnn_output_dim):
+        super(CombinedModel, self).__init__()
+        self.lstm = CoordinateCorrectionModel(lstm_input_size, lstm_hidden_size, lstm_output_size)
+        self.gnn = GNN(gnn_input_dim, gnn_hidden_dim, gnn_output_dim)
+        self.fc = nn.Linear(lstm_output_size + gnn_output_dim, lstm_output_size)
 
-# 3. Функция потерь и оптимизатор
-criterion = nn.L1Loss()  # или nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+    def forward(self, x, edge_index):
+        lstm_out = self.lstm(x)
+        gnn_out = self.gnn(x, edge_index)
+        combined = torch.cat((lstm_out, gnn_out), dim=-1)
+        out = self.fc(combined)
+        return out
 
-# 4. Обучение модели
-num_epochs = 10
+
+# Пример данных
+noisy_routes = [[[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]], [[0.7, 0.8], [0.9, 1.0], [1.1, 1.2]]]
+true_routes = [[[0.0, 0.0], [0.3, 0.3], [0.6, 0.6]], [[0.7, 0.7], [1.0, 1.0], [1.3, 1.3]]]
+
+dataset = RouteDataset(noisy_routes, true_routes)
+dataloader = DataLoader(dataset, batch_size=2, shuffle=True)
+
+# Определение модели, функции потерь и оптимизатора
+model = CombinedModel(input_size=2, hidden_size=128, output_size=2, num_layers=2)
+criterion = nn.MSELoss()  # Функция потерь
+optimizer = optim.Adam(model.parameters(), lr=0.001)  # Оптимизатор
+
+num_epochs = 10  # Количество эпох
+
 for epoch in range(num_epochs):
-    for i, (distorted, clean) in enumerate(dataloader):
-        distorted = distorted.to(device)
-        clean = clean.to(device)
-
+    for batch_noisy, batch_true in dataloader:
         # Forward pass
-        outputs = model(distorted)
-        loss = criterion(outputs, clean)
+        outputs = model(batch_noisy)
+        loss = criterion(outputs, batch_true)
 
-        # Backward pass
+        # Backward pass и оптимизация
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        if (i + 1) % 10 == 0:
-            print(f"Epoch [{epoch + 1}/{num_epochs}], Step [{i + 1}/{len(dataloader)}], Loss: {loss.item():.4f}")
-
-# 5. Генерация изображений
-model.eval()
-with torch.no_grad():
-    # Загрузите искажённое изображение
-    distorted_image = Image.open("path/to/distorted_image.png").convert("RGB")
-    distorted_image = transform(distorted_image).unsqueeze(0).to(device)
-
-    # Генерация исправленного изображения
-    generated_image = model(distorted_image)
-    generated_image = generated_image.squeeze().cpu().numpy()
-
-    # Сохранение или визуализация generated_image
-    generated_image = (generated_image * 0.5 + 0.5) * 255  # Денормализация к [0, 255]
-    generated_image = generated_image.transpose(1, 2, 0).astype("uint8")
-    Image.fromarray(generated_image).save("path/to/generated_image.png")
+    print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
