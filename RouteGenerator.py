@@ -23,7 +23,7 @@ class RouteGenerator:
         """
 
         self.__load_config(config_path)
-        self.__data = {'place_bbox': '', 'samples': []}
+        self.data = {'X': [], 'y': []}
 
         if "place_name" in kwargs.keys():
             self.__place_bbox = list(
@@ -38,8 +38,8 @@ class RouteGenerator:
             )
 
         self.__graph = ox.graph_from_bbox(self.__place_bbox)  # Граф дорог местности
-        self.__data['place_bbox'] = str(self.__place_bbox)
-        self.__data['samples'] = {'inputs': [], 'targets': []}
+        # self.__data['place_bbox'] = str(self.__place_bbox)
+        # self.__data['samples'] = {'inputs': [], 'targets': []}
 
     def __load_config(self, file_path: str) -> None:
         """Загрузка данных о константах через файл конфигурации.
@@ -127,10 +127,10 @@ class RouteGenerator:
                 previous_node = new_node  # Сместить начальную точку для следующего шага
             new_nodes.append(path[i + 1])
 
-        false_route = [{'x': G.nodes[n]["x"], 'y': G.nodes[n]["y"]} for n in new_nodes]
-        self.__data['samples']['inputs'].append(false_route)
+        false_route = [(G.nodes[n]["x"], G.nodes[n]["y"]) for n in new_nodes]
+        return false_route
 
-    def __save_main_route(self) -> list:
+    def __save_main_route(self) -> Tuple[list, list]:
         """Генерация и сохранение исходного маршрута в указанную папку в виде единого изображения,
         а также в виде отдельных частей размером 256х256.
         Получение изображения происходит с помощью запроса по протоколу TMS.
@@ -149,22 +149,73 @@ class RouteGenerator:
                 node_ids = nx.astar_path(self.__graph, start, end, weight="length")
             except nx.NetworkXNoPath:
                 pass
-        main_route = [{'id': n, 'x': self.__graph.nodes[n]["x"], 'y': self.__graph.nodes[n]["y"]}
+        main_route = [(self.__graph.nodes[n]["x"], self.__graph.nodes[n]["y"])
                       for n in node_ids]
-        self.__data['samples']['targets'].append(main_route)
-        return node_ids
+        return node_ids, main_route
 
-    def save_data(self, save_file: str) -> None:
+    def save_data(self) -> None:
+        t = 0.3  # параметр для интерполяции точек исходного маршрута к точкам ложного маршрута
+
         for i in range(self.__data_amount):
-            main_route_ids = self.__save_main_route()
-            self.__save_false_route(main_route_ids)
-        with open(save_file, "w") as file:
-            json.dump(self.__data, file, indent=2)
+            route_ids, main_route = self.__save_main_route()
+            false_route = self.__save_false_route(route_ids)
+
+            # процесс выравнивания маршрутов,
+            # который необходим, т.к. входной и выходной размер последовательности должен совпадать
+            added_points = []  # добавленные точки-помехи
+            main_copy = main_route.copy()
+            pack = []  # подряд идущие добавленные точки будем собирать в единый список
+
+            for point in false_route:
+                if point not in main_route:
+                    pack.append(point)
+                else:
+                    added_points.append(pack)
+                    pack = []
+
+            # добавление новой точки в истинный маршрут,
+            # которая лежит на прямой между двумя исходными точками
+            for j in range(len(main_route) - 1):
+                if (size := len(added_points[j])) != 0:
+                    t = 1 / (size + 1)
+                    add = t
+                    start, end = main_route[j], main_route[j + 1]
+                    for _ in range(size):
+                        new_point = (start[0] + t * (end[0] - start[0]),
+                                     start[1] + t * (end[1] - start[1]))
+                        insert_idx = main_copy.index(start)
+                        main_copy.insert(insert_idx, new_point)
+                        t += add
+
+            if len(main_copy) != len(false_route):
+                main_copy.append(main_route[-1])
+            self.data['y'].append(main_copy)
+            self.data['X'].append(false_route)
 
 
 if __name__ == "__main__":
-    os.makedirs("images", exist_ok=True)
-    data_generator = RouteGenerator(
+    samples = {'X': [], 'y': []}
+
+    generator = RouteGenerator(
         place_bbox=[39.121447, 51.646002, 39.135578, 51.653782]
     )
-    data_generator.save_data("test.json")
+    generator.save_data()
+    samples['X'].extend(generator.data['X'])
+    samples['y'].extend(generator.data['y'])
+
+    generator = RouteGenerator(
+        place_bbox=[38.97793, 51.70105, 38.99958, 51.69278]
+    )
+    generator.save_data()
+    samples['X'].extend(generator.data['X'])
+    samples['y'].extend(generator.data['y'])
+
+    generator = RouteGenerator(
+        place_bbox=[39.14427, 51.71249, 39.18270, 51.69501]
+    )
+    generator.save_data()
+    samples['X'].extend(generator.data['X'])
+    samples['y'].extend(generator.data['y'])
+
+    with (open('test.json', 'w')) as f:
+        json.dump(samples, f)
