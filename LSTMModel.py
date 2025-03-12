@@ -4,12 +4,13 @@
 # TODO разобраться, как использовать графы при обучении модели
 # TODO сделать обучающую выборку в виде файла json [DONE]
 # TODO придумать, в каком виде будет храниться выборка [DONE]
+# TODO обучить и сравнить следующие модели: LSTM (+ добавить эмбеддинг длин последовательностей),
+#  GNN, seq2seq, ансамбль LSTM и GNN, ансамбль seq2seq и GNN
+# TODO дополнительно посмотреть про GeoGNN
 
 import seaborn as sns
 import pandas as pd
 import numpy as np
-from tqdm.notebook import tqdm
-
 from sklearn.preprocessing import MinMaxScaler
 
 import torch
