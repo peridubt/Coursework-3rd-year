@@ -59,7 +59,7 @@ class LSTMModel(nn.Module):
         # Проходим через LSTM
         out, _ = self.lstm(x)
         # Проходим через линейный слой
-        out = self.fc(out[:, -1, :])
+        out = self.fc(out)
         return out
 
 
@@ -74,11 +74,9 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = LSTMModel(input_size, hidden_size, output_size, num_layers)
 
 # Функция потерь и оптимизатор
-criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 batch_size = 32
-
-loss_fn = nn.MSELoss(reduction='mean')
+loss_fn = nn.MSELoss()
 
 X_train = [torch.tensor(seq) for seq in X_train]
 y_train = [torch.tensor(seq) for seq in y_train]
@@ -135,6 +133,9 @@ for epoch in range(num_epochs):
         average_test_loss = total_test_loss / len(test_loader)
         test_hist.append(average_test_loss)
 
-    if (epoch + 1) % 100 == 0:
+    if (epoch + 1) % 10 == 0:
         print(
             f'Epoch [{epoch + 1}/{num_epochs}] - Training Loss: {average_loss:.4f}, Test Loss: {average_test_loss:.4f}')
+
+predictions = model(X_test_pad)
+print(f'Test loss: {mean_squared_error(predictions, y_test_pad.detach().numpy()):.4f}')
