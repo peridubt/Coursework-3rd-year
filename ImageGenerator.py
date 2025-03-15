@@ -8,7 +8,7 @@ import json
 from TMSRequest import TMSRequest
 
 
-class PictureGenerator:
+class ImageGenerator:
     def __init__(self, config_path: str = "config.json", **kwargs):
         """Конструктор класса, которому в именованных аргументах передаётся
         либо название местности, либо точные координаты местности.
@@ -39,7 +39,7 @@ class PictureGenerator:
                 "Укажите название места согласно базе данных OSM либо координаты местности."
             )
 
-        self.__graph = ox.graph_from_bbox(self.__place_bbox)  # Граф дорог местности
+        self.graph = ox.graph_from_bbox(self.__place_bbox)  # Граф дорог местности
 
     def __load_config(self, file_path: str) -> None:
         """Загрузка данных о константах через файл конфигурации.
@@ -60,7 +60,7 @@ class PictureGenerator:
             self.__min_offset = config["min_offset"]  # Минимальное отклонение
             self.__max_offset = config["max_offset"]  # Максимальное отклонение
 
-    def __generate_main_route(self) -> list:
+    def generate_main_route(self) -> list:
         """Генерация одного исходного маршрута на основе алгоритма А*.
 
         Returns:
@@ -69,16 +69,16 @@ class PictureGenerator:
         """
 
         # Выбор случайных точек в графе
-        keys = list(self.__graph.nodes.keys()).copy()
+        keys = list(self.graph.nodes.keys()).copy()
         start = random.choice(keys)
         keys.remove(start)
         end = random.choice(keys)
 
         # Поиск кратчайшего пути
-        main_route = nx.astar_path(self.__graph, start, end, weight="length")
+        main_route = nx.astar_path(self.graph, start, end, weight="length")
         return main_route
 
-    def __get_one_false_route(self, main_route: list) -> Tuple[nx.Graph, list]:
+    def get_one_false_route(self, main_route: list) -> Tuple[nx.Graph, list]:
         """Генерация одного искажённого маршрута на основе исходного.
 
         Args:
@@ -89,7 +89,7 @@ class PictureGenerator:
         """
 
         path = main_route
-        G = self.__graph
+        G = self.graph
         new_nodes = [path[0]]
 
         for i in range(len(path) - 1):
@@ -147,7 +147,7 @@ class PictureGenerator:
         return G, new_nodes
 
     @staticmethod
-    def __transform_bbox(bbox: list) -> dict:
+    def transform_bbox(bbox: list) -> dict:
         """
         Преобразование списка координат в словарь.
         Args:
@@ -166,7 +166,7 @@ class PictureGenerator:
             "lon2": max(copy[0], copy[1]),
         }
 
-    def __save_main_route(self, save_folder: str) -> None:
+    def save_main_route(self, save_folder: str) -> None:
         """Генерация и сохранение исходного маршрута в указанную папку в виде единого изображения,
         а также в виде отдельных частей размером 256х256.
         Получение изображения происходит с помощью запроса по протоколу TMS.
@@ -175,21 +175,21 @@ class PictureGenerator:
             save_folder (str): Путь к папке для сохранения.
         """
         request = TMSRequest()
-        main_route = self.__generate_main_route()
+        main_route = self.generate_main_route()
         self.main_routes.append(main_route)
         index = len(self.main_routes)
-        bbox = self.__transform_bbox(self.__place_bbox)
+        bbox = self.transform_bbox(self.__place_bbox)
 
         request.get(
             bbox,
-            self.__graph,
+            self.graph,
             main_route,
             save_folder,
             f"main{index}",
             "png",
         )
 
-    def __save_false_route(self, save_folder: str) -> None:
+    def save_false_route(self, save_folder: str) -> None:
         """Генерация и сохранение искажённого маршрута в указанную папку в виде единого изображения,
         а также в виде отдельных частей размером 256х256.
         Получение изображения происходит с помощью запроса по протоколу TMS.
@@ -200,11 +200,11 @@ class PictureGenerator:
 
         request = TMSRequest()
         index = len(self.main_routes)
-        false_graph, false_route = self.__get_one_false_route(
+        false_graph, false_route = self.get_one_false_route(
             self.main_routes[index - 1]
         )
         self.false_routes.append((false_graph, false_route))
-        bbox = self.__transform_bbox(self.__place_bbox)
+        bbox = self.transform_bbox(self.__place_bbox)
 
         request.get(
             bbox,
@@ -226,13 +226,13 @@ class PictureGenerator:
         for i in range(1, self.__data_amount + 1):
             route_folder = os.path.join(save_folder, f"route{i}")
             os.makedirs(route_folder, exist_ok=True)
-            self.__save_main_route(route_folder)
-            self.__save_false_route(route_folder)
+            self.save_main_route(route_folder)
+            self.save_false_route(route_folder)
 
 
 if __name__ == "__main__":
     os.makedirs("images", exist_ok=True)
-    data_generator = PictureGenerator(
+    data_generator = ImageGenerator(
         place_bbox=[39.121447, 51.646002, 39.135578, 51.653782]
     )
     data_generator.save_data("images")

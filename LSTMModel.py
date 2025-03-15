@@ -13,6 +13,7 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
+import os
 import torch
 import json
 import torch.nn as nn
@@ -21,6 +22,9 @@ from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_se
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
+from ImageGenerator import ImageGenerator
+from RouteGenerator import RouteGenerator
+from TMSRequest import TMSRequest
 from collections import defaultdict
 
 with (open('test.json', 'r', encoding='utf-8')) as f:
@@ -32,7 +36,6 @@ X_train, X_test, y_train, y_test = train_test_split(X, y,
                                                     random_state=42)
 
 
-# Определяем модель LSTM
 # class LSTMModel(nn.Module):
 #     def __init__(self, input_dim, embedding_dim, hidden_dim, output_dim):
 #         super().__init__()
@@ -56,24 +59,44 @@ class LSTMModel(nn.Module):
         self.fc = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
-        # Проходим через LSTM
+        # проходим через LSTM
         out, _ = self.lstm(x)
-        # Проходим через линейный слой
+        # проходим через линейный слой
         out = self.fc(out)
         return out
 
 
+def test(test_model: nn.Module, save_folder: str) -> None:
+    place_bbox = [39.16064, 51.72495, 39.18008, 51.71307]
+    generator = ImageGenerator(place_bbox=place_bbox)
+    G, main_route = generator.graph, generator.generate_main_route()
+    G_false, false_route = generator.get_one_false_route(main_route)
+
+    geo_dict = generator.transform_bbox(place_bbox)
+    tms = TMSRequest()
+    tms.get(geo_dict, G, main_route, save_folder, "target", "png")
+    tms.get(geo_dict, G_false, false_route, save_folder, "input", "png")
+
+    false_coords = [[G_false.nodes[n]["x"], G_false.nodes[n]["y"]] for n in false_route]
+    test_model.eval()
+    with torch.no_grad():
+        predict = model(torch.tensor(false_coords))
+    predict = predict.detach().numpy()
+    print(predict)
+    tms.draw_route_on_map(predict, 15, save_folder, "predict", "png")
+
+
 # Параметры модели
-input_size = 2  # Широта и долгота
+input_size = 2  # Выходная размерность последовательности: Широта и долгота
 hidden_size = 64
 output_size = 2
 num_layers = 1
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Создаём модель
+# создаём модель
 model = LSTMModel(input_size, hidden_size, output_size, num_layers)
 
-# Функция потерь и оптимизатор
+# функция потерь и оптимизатор
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 batch_size = 32
 loss_fn = nn.MSELoss()
@@ -97,19 +120,20 @@ train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 test_dataset = TensorDataset(X_test_pad, y_test_pad)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-# Обучение модели
-num_epochs = 500
+# обучение модели
+num_epochs = 500  # Количество эпох при обучении
 train_hist = []
 test_hist = []
 
 for epoch in range(num_epochs):
     total_loss = 0.0
     model.train()
-    for batch_X, batch_y in train_loader:
+    for batch_X, batch_y in train_loader:  # выборка разделяется на части (батчи)
         batch_X, batch_y = batch_X.to(device), batch_y.to(device)
         predictions = model(batch_X)
-        loss = loss_fn(predictions, batch_y)
+        loss = loss_fn(predictions, batch_y)  # для каждого батча считается функция потерь
 
+        # обратное распространение ошибки
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -119,6 +143,7 @@ for epoch in range(num_epochs):
     average_loss = total_loss / len(train_loader)
     train_hist.append(average_loss)
 
+    # расчёты для тестовых бачтей
     model.eval()
     with torch.no_grad():
         total_test_loss = 0.0
@@ -137,5 +162,5 @@ for epoch in range(num_epochs):
         print(
             f'Epoch [{epoch + 1}/{num_epochs}] - Training Loss: {average_loss:.4f}, Test Loss: {average_test_loss:.4f}')
 
-predictions = model(X_test_pad)
-print(f'Test loss: {mean_squared_error(predictions, y_test_pad.detach().numpy()):.4f}')
+os.makedirs("images", exist_ok=True)
+test(model, "images")

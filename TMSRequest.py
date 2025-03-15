@@ -164,7 +164,7 @@ class TMSRequest:
                         ),
                     )
 
-    def __draw_route_on_map(
+    def draw_route_on_map(
         self, route_coords: list, zoom: int, save_folder: str, name: str, extension: str
     ):
         """Отрисовка указанного маршрута на изображении карты
@@ -190,9 +190,7 @@ class TMSRequest:
                 x2, y2, self.__x1_tile, self.__y1_tile, zoom
             )
             draw.line([(x1_px, y1_px), (x2_px, y2_px)], fill="blue", width=3)
-
-        os.makedirs(os.path.join(save_folder, name), exist_ok=True)
-        self.__map_img.save(f"{save_folder}/{name}/{name}.{extension}")
+        self.__map_img.save(f"{save_folder}/{name}.{extension}")
 
     def __split_img_into_tiles(
         self, save_folder: str, name: str, extension: str
@@ -249,8 +247,8 @@ class TMSRequest:
         self.__fill_img_with_tiles(zoom)
 
         route_coords = [(graph.nodes[n]["y"], graph.nodes[n]["x"]) for n in node_ids]
-        self.__draw_route_on_map(route_coords, zoom, save_folder, route_name, extension)
-        self.__split_img_into_tiles(save_folder, route_name, extension)
+        self.draw_route_on_map(route_coords, zoom, save_folder, route_name, extension)
+        # self.__split_img_into_tiles(save_folder, route_name, extension)
 
 
 if __name__ == "__main__":
