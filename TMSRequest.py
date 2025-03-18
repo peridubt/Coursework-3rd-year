@@ -2,7 +2,7 @@ import math
 from time import sleep
 from typing import Tuple
 import requests
-from PIL import Image, ImageDraw # type: ignore
+from PIL import Image, ImageDraw  # type: ignore
 from io import BytesIO
 import networkx as nx
 import os
@@ -36,17 +36,17 @@ class TMSRequest:
             Tuple[int, int]: Координаты согласно TMS.
         """
 
-        n = 2**zoom
+        n = 2 ** zoom
         x_tile = int((lon + 180) / 360 * n)
         y_tile = int(
             (
-                1
-                - (
-                    math.log(
-                        math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))
+                    1
+                    - (
+                            math.log(
+                                math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))
+                            )
+                            / math.pi
                     )
-                    / math.pi
-                )
             )
             / 2
             * n
@@ -82,7 +82,7 @@ class TMSRequest:
 
     @staticmethod
     def __geo_to_pixel(
-        lat: float, lon: float, x_tile: int, y_tile: int, zoom: int
+            lat: float, lon: float, x_tile: int, y_tile: int, zoom: int
     ) -> Tuple[int, int]:
         """Преобразование географических координат в пиксели на экране согласно размерам изображения.
 
@@ -97,25 +97,25 @@ class TMSRequest:
             Tuple[int, int]: Координаты точки на экране.
         """
 
-        n = 2.0**zoom
+        n = 2.0 ** zoom
         x = (lon + 180.0) / 360.0 * n
         y = (
-            (
-                1.0
-                - math.log(
+                (
+                        1.0
+                        - math.log(
                     math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))
                 )
-                / math.pi
-            )
-            / 2.0
-            * n
+                        / math.pi
+                )
+                / 2.0
+                * n
         )
         pixel_x = (x - x_tile) * 256
         pixel_y = (y - y_tile) * 256
         return int(pixel_x), int(pixel_y)
 
-    def __set_tiles_coords(
-        self, lat1: float, lon1: float, lat2: float, lon2: float, zoom: int
+    def set_tiles_coords(
+            self, lat1: float, lon1: float, lat2: float, lon2: float, zoom: int
     ):
         """
         Получение координат для двух плиток, находящихся в противоположных углах карты,
@@ -145,7 +145,7 @@ class TMSRequest:
             self.__y1_tile, self.__y2_tile
         )
 
-    def __fill_img_with_tiles(self, zoom: int):
+    def fill_img_with_tiles(self, zoom: int):
         """Заполнение полного изображения плитками, полученными с помощью запроса TMS.
 
         Args:
@@ -165,7 +165,7 @@ class TMSRequest:
                     )
 
     def draw_route_on_map(
-        self, route_coords: list, zoom: int, save_folder: str, name: str, extension: str
+            self, route_coords: list, zoom: int, save_folder: str, name: str, extension: str
     ):
         """Отрисовка указанного маршрута на изображении карты
         и сохранение полученного изображения.
@@ -180,8 +180,8 @@ class TMSRequest:
 
         draw = ImageDraw.Draw(self.__map_img)
         for i in range(len(route_coords) - 1):
-            x1, y1 = route_coords[i]
-            x2, y2 = route_coords[i + 1]
+            x1, y1 = tuple(route_coords[i])
+            x2, y2 = tuple(route_coords[i + 1])
 
             x1_px, y1_px = self.__geo_to_pixel(
                 x1, y1, self.__x1_tile, self.__y1_tile, zoom
@@ -193,7 +193,7 @@ class TMSRequest:
         self.__map_img.save(f"{save_folder}/{name}.{extension}")
 
     def __split_img_into_tiles(
-        self, save_folder: str, name: str, extension: str
+            self, save_folder: str, name: str, extension: str
     ) -> None:
         """Разделение изображения карты на плитки и сохранение в указанную папку.
 
@@ -216,20 +216,18 @@ class TMSRequest:
                 )
 
     def get(
-        self,
-        geo_coords: dict,
-        graph: nx.Graph,
-        node_ids: list,
-        save_folder: str,
-        route_name: str,
-        extension: str,
+            self,
+            geo_coords: dict,
+            route_coords: list,
+            save_folder: str,
+            route_name: str,
+            extension: str,
     ):
         """Объединение предыдущих методов в единый запрос.
 
         Args:
             geo_coords (dict): Координаты местности.
-            graph (nx.Graph): Граф дорог местности.
-            node_ids (list): Маршрут для отрисовки в виде списка идентификаторов вершин.
+            route_coords (list): Маршрут для отрисовки в виде списка идентификаторов вершин.
             save_folder (str): Путь к папке для сохранения.
             route_name (str): Название файла для сохранения.
             extension (str): Расширение файла.
@@ -243,10 +241,8 @@ class TMSRequest:
         )
 
         zoom = self.__zoom_size
-        self.__set_tiles_coords(lat1, lon1, lat2, lon2, zoom)
-        self.__fill_img_with_tiles(zoom)
-
-        route_coords = [(graph.nodes[n]["y"], graph.nodes[n]["x"]) for n in node_ids]
+        self.set_tiles_coords(lat1, lon1, lat2, lon2, zoom)
+        self.fill_img_with_tiles(zoom)
         self.draw_route_on_map(route_coords, zoom, save_folder, route_name, extension)
         # self.__split_img_into_tiles(save_folder, route_name, extension)
 
