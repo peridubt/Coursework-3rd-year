@@ -1,69 +1,80 @@
-from io import BytesIO
-
-import networkx as nx
-from PIL import Image, ImageDraw
-import requests
-import osmnx as ox
-import math
-import time
-
-
-def geo_to_pixel(lat, lon, x_tile, y_tile, zoom):
-    n = 2.0 ** zoom
-    x = (lon + 180.0) / 360.0 * n
-    y = (1.0 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2.0 * n
-    pixel_x = (x - x_tile) * 256
-    pixel_y = (y - y_tile) * 256
-    return pixel_x, pixel_y
+import os
+import torch
+import folium
+from ImageGenerator import ImageGenerator
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from LSTMModel import LSTMModel
 
 
-def lat_lon_to_tile(lat, lon, zoom) -> (int, int):
-    """Convert latitude and longitude to tile numbers."""
-    n = 2 ** zoom
-    x_tile = int((lon + 180) / 360 * n)
-    y_tile = int((1 - (math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi)) / 2 * n)
-    return x_tile, y_tile
+def make_equal(main_route: list, false_route: list) -> list:
+    added_points = []
+    main_copy = main_route.copy()
+    pack = []
+
+    for point in false_route:
+        if point not in main_route:
+            pack.append(point)
+        else:
+            added_points.append(pack)
+            pack = []
+    for j in range(len(main_route) - 1):
+        if (size := len(added_points[j])) != 0:
+            t = 1 / (size + 1)
+            add = t
+            start, end = main_route[j], main_route[j + 1]
+            for _ in range(size):
+                new_point = (start[0] + t * (end[0] - start[0]),
+                             start[1] + t * (end[1] - start[1]))
+                insert_idx = main_copy.index(start)
+                main_copy.insert(insert_idx, new_point)
+                t += add
+
+    if len(main_copy) != len(false_route):
+        main_copy.append(main_route[-1])
+    return main_copy
 
 
-def download_tile(x = 9971, y = 5437, zoom = 15) -> Image.Image:
-    """Download a tile image from the TMS server."""
-    url = f"https://tile.openstreetmap.org/{zoom}/{x}/{y}.png"
-    headers = {
-        'User-Agent': 'Chrome/58.0.3029.110'
-    }
-    time.sleep(1)
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        return Image.open(BytesIO(response.content))
-    else:
-        print(f"Error downloading tile {x}/{y} at zoom {zoom}: {response.status_code}")
-        return None
+def save_route(points: list, save_folder: str, name: str) -> None:
+    # Создаем карту, центрированную на первой точке
+    points = [(point[1], point[0]) for point in points]
+    plot = folium.Map(location=points[0], zoom_start=15)
+
+    # Соединяем точки линией (маршрут)
+    folium.PolyLine(points, color="red", weight=2, opacity=1).add_to(plot)
+
+    # Сохраняем карту в HTML-файл и открываем его
+    plot.save(f"{save_folder}/{name}.html")
 
 
-# Шаг 1: Получение маршрута
-# G = ox.graph_from_place("Manhattan, New York, USA", network_type="walk")
-# keys = list(G.nodes.keys())
-# orig = keys[0]  # Начальная точка (широта, долгота)
-# dest = keys[-1] # Конечная точка (широта, долгота)
-# # route = nx.astar_path(G, orig, dest, weight="length")
-# # route_coords = [(G.nodes[n]["y"], G.nodes[n]["x"]) for n in route]
-#
-# # Шаг 2: Вычисление координат плитки
-# zoom = 6
-# x_tile, y_tile = lat_lon_to_tile(G.nodes[orig]["x"], G.nodes[orig]["y"], zoom)
+def lstm_test(save_folder: str) -> None:
+    os.makedirs(save_folder, exist_ok=True)
 
-# Шаг 3: Загрузка карты
-tile = download_tile()
-tile.show()
-# # Шаг 4: Отображение маршрута на карте
-# draw = ImageDraw.Draw(tile)
-# for i in range(len(route_coords) - 1):
-#     x1, y1 = route_coords[i]
-#     x2, y2 = route_coords[i + 1]
-#
-#     # Преобразование географических координат в пиксели
-#     x1_px, y1_px = geo_to_pixel(x1, y1, x_tile, y_tile, zoom)
-#     x2_px, y2_px = geo_to_pixel(x2, y2, x_tile, y_tile, zoom)
-#     draw.line([(x1_px, y1_px), (x2_px, y2_px)], fill="blue", width=3)
-#
-# tile.show()
+    test_model = torch.load('lstm_model.pth', weights_only=False)
+    test_model.eval()
+
+    sc = MinMaxScaler(feature_range=(-1, 1))
+
+    place_bbox = [39.16064, 51.72495, 39.18008, 51.71307]
+    generator = ImageGenerator(place_bbox=place_bbox)
+    G, main_route = generator.graph, generator.generate_main_route()
+    G_false, false_route = generator.get_one_false_route(main_route)
+
+    main_coords = [[G.nodes[n]["x"], G.nodes[n]["y"]] for n in main_route]
+    false_coords = [[G_false.nodes[n]["x"], G_false.nodes[n]["y"]] for n in false_route]
+    main_coords = make_equal(main_coords, false_coords)
+
+    save_route(main_coords, save_folder, "target")
+    save_route(false_coords, save_folder, "input")
+
+    false_coords = torch.tensor(sc.fit_transform(false_coords), dtype=torch.float32)
+    with torch.no_grad():
+        predict = test_model(false_coords)
+    predict = sc.inverse_transform(predict.detach().numpy())
+    print(predict)
+    save_route(predict, save_folder, "predict")
+    print(f"MSE: {mean_squared_error(predict, main_coords)} \t MAE: {mean_absolute_error(predict, main_coords)}")
+
+
+if __name__ == "__main__":
+    lstm_test("images")
