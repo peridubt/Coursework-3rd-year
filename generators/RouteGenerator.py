@@ -1,10 +1,14 @@
-import os
 import random
 from typing import Tuple
+
+import numpy as np
 import osmnx as ox
 import networkx as nx
 from geopy.distance import geodesic as gd  # type: ignore
 import json
+
+from haversine import haversine, Unit
+from scipy.interpolate import interp1d
 
 
 class RouteGenerator:
@@ -37,9 +41,7 @@ class RouteGenerator:
                 "Укажите название места согласно базе данных OSM либо координаты местности."
             )
 
-        self.__graph = ox.graph_from_bbox(self.__place_bbox)  # Граф дорог местности
-        # self.__data['place_bbox'] = str(self.__place_bbox)
-        # self.__data['samples'] = {'inputs': [], 'targets': []}
+        self.graph = ox.graph_from_bbox(self.__place_bbox, network_type="drive")  # Граф дорог местности
 
     def __load_config(self, file_path: str) -> None:
         """Загрузка данных о константах через файл конфигурации.
@@ -59,19 +61,21 @@ class RouteGenerator:
             ]  # Максимальное значение отрезка для создания отклонения
             self.__min_offset = config["min_offset"]  # Минимальное отклонение
             self.__max_offset = config["max_offset"]  # Максимальное отклонение
+            self.__max_route_len = config["max_route_len"]
+            self.__min_route_len = config["min_route_len"]
 
-    def __save_false_route(self, main_route: list) -> list:
+    def save_false_route(self, main_route: list) -> tuple:
         """Генерация одного искажённого маршрута на основе исходного.
 
         Args:
-            list: Исходный маршрут.
+            main_route: (list): Исходный маршрут.
 
         Returns:
             Tuple[nx.Graph, list]: Кортеж, внутри которого помещён изменённый граф и полученный маршрут.
         """
 
         path = main_route
-        G = self.__graph.copy()
+        G = self.graph.copy()
         new_nodes = [path[0]]
 
         for i in range(len(path) - 1):
@@ -128,94 +132,75 @@ class RouteGenerator:
             new_nodes.append(path[i + 1])
 
         false_route = [(G.nodes[n]["x"], G.nodes[n]["y"]) for n in new_nodes]
-        return false_route
+        return G, false_route
 
-    def __save_main_route(self) -> Tuple[list, list]:
-        """Генерация и сохранение исходного маршрута в указанную папку в виде единого изображения,
-        а также в виде отдельных частей размером 256х256.
-        Получение изображения происходит с помощью запроса по протоколу TMS.
+    def save_main_route(self) -> Tuple[list, list]:
+        """Генерация и сохранение исходного маршрута
 
-        Args:
-            save_folder (str): Путь к папке для сохранения.
+        Args: _
         """
-        keys = list(self.__graph.nodes.keys()).copy()
+        keys = list(self.graph.nodes.keys()).copy()
         node_ids = []
-        start = random.choice(keys)
-        keys.remove(start)
-        while len(node_ids) == 0:
+
+        while len(node_ids) < self.__min_route_len or len(node_ids) > self.__max_route_len:
             try:
+                start = random.choice(keys)
+                keys.remove(start)
                 end = random.choice(keys)
                 # Поиск кратчайшего пути
-                node_ids = nx.astar_path(self.__graph, start, end, weight="length")
+                node_ids = nx.astar_path(self.graph, start, end, weight="length")
             except nx.NetworkXNoPath:
                 pass
-        main_route = [(self.__graph.nodes[n]["x"], self.__graph.nodes[n]["y"])
+        main_route = [(self.graph.nodes[n]["x"], self.graph.nodes[n]["y"])
                       for n in node_ids]
         return node_ids, main_route
 
+    @staticmethod
+    def calculate_cumulative_distances(route: "np.ndarray"):
+        distances = [0]  # Начинаем с 0 элемента
+        for i in range(1, len(route)):
+            lon1, lat1 = route[i - 1]
+            lon2, lat2 = route[i]
+            distance = haversine((lon1, lat1), (lon2, lat2), unit=Unit.METERS)
+            distances.append(distances[-1] + distance)
+        return np.array(distances)
+
+    # Функция для интерполяции маршрута
+
+    def make_equal(self, route: list, num_points: int) -> list:
+        route = np.array(route)
+        # Вычисляем кумулятивное расстояние
+        distances = self.calculate_cumulative_distances(route)
+
+        # Создаем интерполяционные функции для широты и долготы
+        interpolation_func_lon = interp1d(distances, route[:, 0], kind='linear')
+        interpolation_func_lat = interp1d(distances, route[:, 1], kind='linear')
+
+        new_distances = np.linspace(0, distances[-1], num_points)
+
+        new_lon = interpolation_func_lon(new_distances)
+        new_lat = interpolation_func_lat(new_distances)
+        new_route = list(np.column_stack((new_lon, new_lat)))
+        new_route = [tuple(point) for point in new_route]
+        return new_route
+
     def save_data(self) -> None:
-        t = 0.3  # параметр для интерполяции точек исходного маршрута к точкам ложного маршрута
-
         for i in range(self.__data_amount):
-            route_ids, main_route = self.__save_main_route()
-            false_route = self.__save_false_route(route_ids)
+            route_ids, main_route = self.save_main_route()
+            _, false_route = self.save_false_route(route_ids)
 
-            # процесс выравнивания маршрутов,
-            # который необходим, т.к. входной и выходной размер последовательности должен совпадать
-            added_points = []  # добавленные точки-помехи
-            main_copy = main_route.copy()
-            pack = []  # подряд идущие добавленные точки будем собирать в единый список
-
-            for point in false_route:
-                if point not in main_route:
-                    pack.append(point)
-                else:
-                    added_points.append(pack)
-                    pack = []
-
-            # добавление новой точки в истинный маршрут,
-            # которая лежит на прямой между двумя исходными точками
-            for j in range(len(main_route) - 1):
-                if (size := len(added_points[j])) != 0:
-                    t = 1 / (size + 1)
-                    add = t
-                    start, end = main_route[j], main_route[j + 1]
-                    for _ in range(size):
-                        new_point = (start[0] + t * (end[0] - start[0]),
-                                     start[1] + t * (end[1] - start[1]))
-                        insert_idx = main_copy.index(start)
-                        main_copy.insert(insert_idx, new_point)
-                        t += add
-
-            if len(main_copy) != len(false_route):
-                main_copy.append(main_route[-1])
-            self.data['y'].append(main_copy)
+            main_route = self.make_equal(main_route, len(false_route))
+            self.data['y'].append(main_route)
             self.data['X'].append(false_route)
+            if (i + 1) % 100 == 0:
+                print(f"Сделано {i + 1}/{self.__data_amount} маршрутов")
 
 
 if __name__ == "__main__":
-    samples = {'X': [], 'y': []}
-
     generator = RouteGenerator(
-        place_bbox=[39.121447, 51.646002, 39.135578, 51.653782]
-    )
+        place_bbox=[39.0296, 51.7806, 39.3414, 51.5301]
+    )  # использованы примерные границы Воронежа
     generator.save_data()
-    samples['X'].extend(generator.data['X'])
-    samples['y'].extend(generator.data['y'])
-
-    generator = RouteGenerator(
-        place_bbox=[38.97793, 51.70105, 38.99958, 51.69278]
-    )
-    generator.save_data()
-    samples['X'].extend(generator.data['X'])
-    samples['y'].extend(generator.data['y'])
-
-    generator = RouteGenerator(
-        place_bbox=[39.14427, 51.71249, 39.18270, 51.69501]
-    )
-    generator.save_data()
-    samples['X'].extend(generator.data['X'])
-    samples['y'].extend(generator.data['y'])
 
     with (open('test.json', 'w')) as f:
-        json.dump(samples, f)
+        json.dump(generator.data, f, indent=2)

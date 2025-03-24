@@ -38,7 +38,7 @@ if __name__ == "__main__":
     input_size = 2  # Выходная размерность последовательности: Широта и долгота
     hidden_size = 128
     output_size = 2
-    num_layers = 3
+    num_layers = 5
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # создаём модель
@@ -47,7 +47,7 @@ if __name__ == "__main__":
     # функция потерь и оптимизатор
     optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-5)
     batch_size = 32
-    loss_fn = nn.L1Loss()
+    loss_fn = nn.MSELoss()
 
     X_train = [torch.tensor(sc.fit_transform(seq), dtype=torch.float32) for seq in X_train]
     y_train = [torch.tensor(sc.fit_transform(seq), dtype=torch.float32) for seq in y_train]
@@ -65,7 +65,7 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     # обучение модели
-    num_epochs = 10  # Количество эпох при обучении
+    num_epochs = 30  # Количество эпох при обучении
     train_hist = []
     test_hist = []
     for epoch in range(num_epochs):
@@ -103,4 +103,4 @@ if __name__ == "__main__":
 
         print(
             f'Epoch [{epoch + 1}/{num_epochs}] - Training Loss: {average_loss:.4f}, Test Loss: {average_test_loss:.4f}')
-    torch.save(model, 'lstm_model.pth')
+    torch.save(model, 'lstm_model(1-100).pth')

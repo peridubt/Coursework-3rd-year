@@ -1,11 +1,7 @@
 """
 Модуль, где описаны классы разных моделей
 """
-import torch
 import torch.nn as nn
-
-from ImageGenerator import ImageGenerator
-from TMSRequest import TMSRequest
 
 
 class LSTMModel(nn.Module):

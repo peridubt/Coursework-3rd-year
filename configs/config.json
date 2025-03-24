@@ -1,0 +1,9 @@
+{
+  "data_amount" : 10000,
+  "min_segment": 20,
+  "max_segment": 60,
+  "min_offset": 10,
+  "max_offset": 30,
+  "max_route_len": 50,
+  "min_route_len": 10
+}
