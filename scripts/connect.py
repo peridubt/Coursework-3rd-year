@@ -4,7 +4,7 @@ import json
 import os
 
 db_properties = "..\\configs\\db_properties.json"  # адрес файла конфигурации БД
-data_path = "..\\data\\training_data.csv"  # адрес сохранения файла с выборкой
+data_path = "..\\training data\\training_data.csv"  # адрес сохранения файла с выборкой
 
 dirname = os.path.dirname(__file__)
 db_properties = os.path.join(dirname, db_properties)
@@ -31,21 +31,6 @@ nodes_query = """
 """
 nodes_gdf = gpd.read_postgis(nodes_query, conn, geom_col="way")
 
-# Загрузка ребер
-edges_query = """
-    SELECT
-        l.osm_id AS line_id,
-        p1.osm_id AS source,
-        p2.osm_id AS target,
-    ST_Length(l.way::geography) AS weight,
-    l.way AS geometry  -- Добавляем геометрию
-    FROM planet_osm_line l
-    JOIN planet_osm_point p1 ON ST_Equals(ST_StartPoint(l.way), p1.way)
-    JOIN planet_osm_point p2 ON ST_Equals(ST_EndPoint(l.way), p2.way);
-"""
-edges_gdf = gpd.read_postgis(edges_query, conn, geom_col="geometry")
-
 conn.close()
 
-nodes_gdf.to_file("nodes.geojson", driver="GeoJSON")
-edges_gdf.to_file("edges.geojson", driver="GeoJSON")
+nodes_gdf.to_csv(data_path, index=False)

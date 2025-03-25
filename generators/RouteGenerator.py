@@ -1,3 +1,4 @@
+import os
 import random
 from typing import Tuple
 
@@ -6,6 +7,7 @@ import osmnx as ox
 import networkx as nx
 from geopy.distance import geodesic as gd  # type: ignore
 import json
+import geopandas as gpd
 
 from haversine import haversine, Unit
 from scipy.interpolate import interp1d
@@ -41,7 +43,7 @@ class RouteGenerator:
                 "Укажите название места согласно базе данных OSM либо координаты местности."
             )
 
-        self.graph = ox.graph_from_bbox(self.__place_bbox, network_type="drive")  # Граф дорог местности
+        self.graph = ox.graph_from_bbox(self.__place_bbox, network_type="drive", simplify=False)  # Граф дорог местности
 
     def __load_config(self, file_path: str) -> None:
         """Загрузка данных о константах через файл конфигурации.
@@ -64,7 +66,7 @@ class RouteGenerator:
             self.__max_route_len = config["max_route_len"]
             self.__min_route_len = config["min_route_len"]
 
-    def save_false_route(self, main_route: list) -> tuple:
+    def save_false_route(self, main_route: list) -> Tuple["nx.MultiDiGraph", list, list]:
         """Генерация одного искажённого маршрута на основе исходного.
 
         Args:
@@ -132,7 +134,7 @@ class RouteGenerator:
             new_nodes.append(path[i + 1])
 
         false_route = [(G.nodes[n]["x"], G.nodes[n]["y"]) for n in new_nodes]
-        return G, false_route
+        return G, new_nodes, false_route
 
     def save_main_route(self) -> Tuple[list, list]:
         """Генерация и сохранение исходного маршрута
@@ -187,7 +189,7 @@ class RouteGenerator:
     def save_data(self) -> None:
         for i in range(self.__data_amount):
             route_ids, main_route = self.save_main_route()
-            _, false_route = self.save_false_route(route_ids)
+            _, _, false_route = self.save_false_route(route_ids)
 
             main_route = self.make_equal(main_route, len(false_route))
             self.data['y'].append(main_route)
@@ -197,10 +199,22 @@ class RouteGenerator:
 
 
 if __name__ == "__main__":
-    generator = RouteGenerator(
-        place_bbox=[39.0296, 51.7806, 39.3414, 51.5301]
-    )  # использованы примерные границы Воронежа
-    generator.save_data()
+    # generator = RouteGenerator(
+    #     place_bbox=[39.0296, 51.7806, 39.3414, 51.5301]
+    # )  # использованы примерные границы Воронежа
+    # generator.save_data()
+    #
+    # with (open('test.json', 'w')) as f:
+    #     json.dump(generator.data, f, indent=2)
 
-    with (open('test.json', 'w')) as f:
-        json.dump(generator.data, f, indent=2)
+    dirpath = os.path.dirname(__file__)
+    config = os.path.join(dirpath, "..\\configs\\config.json")
+    save = os.path.join(dirpath, "..\\training data")
+    generator = RouteGenerator(config_path=config, place_bbox=[39.0296, 51.7806, 39.3414,
+                                                               51.5301])  # 39.10146, 51.66079, 39.13532, 51.65488
+    G = generator.graph
+    # target, _ = generator.save_main_route()
+    # _, _, input = generator.save_false_route(target)
+    nodes, edges = ox.graph_to_gdfs(G)
+    nodes.to_csv(os.path.join(save, 'nodes.csv'))
+    edges.to_csv(os.path.join(save, 'edges.csv'))
